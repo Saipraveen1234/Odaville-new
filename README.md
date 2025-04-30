@@ -45,7 +45,7 @@
    After both deployments are complete:
    1. Go to your main website project settings in Vercel
    2. Update the `FRONTEND_URL` and `ADMIN_URL` environment variables with the actual URLs
-   3. Redeploy the project
+   3. Redeploy the project/
 
 ### Development
 

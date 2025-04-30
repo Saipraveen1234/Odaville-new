@@ -8,6 +8,10 @@
     {
       "src": "frontend/**/*",
       "use": "@vercel/static"
+    },
+    {
+      "src": "brochures/**/*",
+      "use": "@vercel/static"
     }
   ],
   "routes": [
@@ -22,6 +26,10 @@
     {
       "src": "/brochures/(.*)",
       "dest": "/brochures/$1"
+    },
+    {
+      "src": "/admin/(.*).html",
+      "dest": "/frontend/admin/$1.html"
     },
     {
       "src": "/admin/(.*)",
@@ -39,9 +47,5 @@
       "src": "/(.*)",
       "dest": "/frontend/index.html"
     }
-  ],
-  "env": {
-    "MONGODB_URI": "@mongodb-uri",
-    "JWT_SECRET": "@jwt-secret"
-  }
+  ]
 }
