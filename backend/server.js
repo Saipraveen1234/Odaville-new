@@ -24,20 +24,22 @@ app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
 // Create uploads directory if it doesn't exist (only in development)
 if (process.env.NODE_ENV !== 'production') {
-const uploadsDir = path.join(__dirname, "uploads");
-const blogUploadsDir = path.join(uploadsDir, "blog");
-const galleryUploadsDir = path.join(uploadsDir, "gallery");
+  const uploadsDir = path.join(__dirname, "uploads");
+  const blogUploadsDir = path.join(uploadsDir, "blog");
+  const galleryUploadsDir = path.join(uploadsDir, "gallery");
+  const productsUploadsDir = path.join(uploadsDir, "products");
 
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir);
-  fs.mkdirSync(blogUploadsDir);
-  fs.mkdirSync(galleryUploadsDir);
-}
+  // Create directories if they don't exist
+  [uploadsDir, blogUploadsDir, galleryUploadsDir, productsUploadsDir].forEach(dir => {
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+  });
 }
 
 // CORS configuration
 const allowedOrigins = process.env.NODE_ENV === 'production' 
-  ? ['https://odaville.com', 'https://www.odaville.com', 'https://admin.odaville.com']
+  ? ['https://odaville.com', 'https://www.odaville.com', 'https://admin.odaville.com', 'https://odaville.vercel.app']
   : ['http://localhost:5000', 'http://localhost:3000'];
 
 app.use(cors({
@@ -51,11 +53,35 @@ app.use(cors({
     }
     return callback(null, true);
   },
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-    credentials: true,
-    optionsSuccessStatus: 200,
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true,
+  optionsSuccessStatus: 200,
 }));
+
+// Configure storage based on environment
+const getStorage = (destination) => {
+  if (process.env.NODE_ENV === 'production') {
+    // For Vercel, use memory storage since filesystem access is read-only
+    return multer.memoryStorage();
+  } else {
+    // For development, use disk storage
+    return multer.diskStorage({
+      destination: (req, file, cb) => {
+        cb(null, path.join(__dirname, 'uploads', destination));
+      },
+      filename: (req, file, cb) => {
+        cb(null, Date.now() + path.extname(file.originalname));
+      },
+    });
+  }
+};
+
+// File handlers (for routes that need them)
+// These will be used in your route files
+exports.blogUpload = multer({ storage: getStorage('blog') });
+exports.galleryUpload = multer({ storage: getStorage('gallery') });
+exports.productsUpload = multer({ storage: getStorage('products') });
 
 // Serve static files based on environment
 if (process.env.NODE_ENV === 'production') {
@@ -66,11 +92,16 @@ if (process.env.NODE_ENV === 'production') {
   app.use(express.static(path.join(__dirname, "..", "frontend")));
   app.use("/admin", express.static(path.join(__dirname, "..", "frontend", "admin")));
   app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+  app.use('/brochures', express.static(path.join(__dirname, '..', 'brochures')));
 }
 
 // Add simple test endpoint for connection testing
 app.get("/api/test", (req, res) => {
-  res.json({ message: "API connection successful!" });
+  res.json({ 
+    message: "API connection successful!", 
+    environment: process.env.NODE_ENV || 'development',
+    timestamp: new Date().toISOString()
+  });
 });
 
 // Connect to MongoDB with better error handling
@@ -87,6 +118,23 @@ mongoose
     );
   });
 
+// Helper function for file handling in Vercel (serverless)
+// This will be used in your route files
+exports.saveFileInVercel = async (file, directory) => {
+  if (process.env.NODE_ENV === 'production') {
+    // In production, you'd typically use a cloud storage service
+    // For this example, we're just returning a path
+    // In a real app, implement AWS S3 or similar cloud storage
+    const fileName = Date.now() + path.extname(file.originalname);
+    
+    // Return the path that would be used in database
+    return `/uploads/${directory}/${fileName}`;
+  } else {
+    // In development, files are already saved by multer disk storage
+    return `/uploads/${directory}/${file.filename}`;
+  }
+};
+
 // Routes
 app.use("/api/auth", authRouter);
 app.use("/api/gallery", galleryRoutes);
@@ -102,7 +150,7 @@ app.use((err, req, res, next) => {
     return res.status(400).json({ message: "File upload error: " + err.message });
   }
 
-  if (err.name === "MongoError") {
+  if (err.name === "MongoError" || err.name === "MongoServerError") {
     return res.status(500).json({ message: "Database error: " + err.message });
   }
 
@@ -114,24 +162,30 @@ app.use((err, req, res, next) => {
 
 // API routes should be above this line
 if (process.env.NODE_ENV === 'production') {
-  // Let Vercel handle the static file serving
+  // In production, let Vercel handle the static file serving
   app.all('*', (req, res) => {
     res.status(200).json({ message: 'Backend API is running' });
-});
+  });
 } else {
   // Development routes
   app.get('/admin/*', (req, res) => {
-  res.sendFile(path.join(__dirname, '..', 'frontend', 'admin', 'admin-login.html'));
-});
+    res.sendFile(path.join(__dirname, '..', 'frontend', 'admin', 'admin-login.html'));
+  });
 
-app.get('/*', (req, res) => {
-  res.sendFile(path.join(__dirname, '..', 'frontend', 'index.html'));
-});
+  app.get('/*', (req, res) => {
+    res.sendFile(path.join(__dirname, '..', 'frontend', 'index.html'));
+  });
 }
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-  console.log(`API available at http://localhost:${PORT}/api`);
-});
 
+// Only start the server if not being imported by Vercel
+if (process.env.NODE_ENV !== 'production') {
+  app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
+    console.log(`API available at http://localhost:${PORT}/api`);
+  });
+}
+
+// Export the app for Vercel serverless function
+module.exports = app;
